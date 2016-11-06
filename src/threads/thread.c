@@ -422,7 +422,14 @@ thread_set_priority (int new_priority)
 		return;
 
 	//Octavian Craciun
+	enum intr_level old_level;
+	old_level = intr_disable();
+
+	int old_priority = thread_current()->priority;
 	thread_current()->priority = new_priority;
+	if(new_priority < old_priority)
+		schedule_by_priority();
+	intr_set_level(old_level);
 }
 
 /* Returns the current thread's priority. */
