@@ -223,11 +223,6 @@ thread_create (const char *name, int priority,
 	enum intr_level old_level;
 	int thread_priority = priority;
 
-	//Alex Filip
-	struct thread *current = thread_current();
-	t->nice = current->nice;
-	t->recent_cpu_time = current->recent_cpu_time;
-
 	ASSERT(function != NULL);
 
 	/* Allocate thread. */
@@ -238,6 +233,12 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread(t, name, thread_priority);
 	tid = t->tid = allocate_tid();
+
+	//Alex Filip
+	struct thread *current = thread_current();
+	t->nice = current->nice;
+	t->recent_cpu_time = current->recent_cpu_time;
+
 	/* Prepare thread for first run by initializing its stack.
 	 Do this atomically so intermediate values for the 'stack'
 	 member cannot be observed. */
@@ -271,6 +272,7 @@ thread_create (const char *name, int priority,
 
 	//Alex Filip & Octavian Craciun
 	schedule_by_priority();
+
 	return tid;
 }
 
@@ -419,6 +421,7 @@ thread_set_priority (int new_priority)
 	if(thread_mlfqs)
 		return;
 
+	//Octavian Craciun
 	thread_current()->priority = new_priority;
 }
 
@@ -457,7 +460,8 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-	return 0;
+	//Alex Filip
+	return fixed_point_to_integer(load_avg);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -483,9 +487,13 @@ idle (void *idle_started_ UNUSED)
 {
 	struct semaphore *idle_started = idle_started_;
 	idle_thread = thread_current();
-	sema_up(idle_started);
+
+	//Alex Filip
 	idle_thread->nice = 0;
 	idle_thread->recent_cpu_time = fixed_point_convert_int(0);
+
+	sema_up(idle_started);
+
 	for (;;) {
 		/* Let someone else run. */
 		intr_disable();
@@ -554,6 +562,11 @@ init_thread (struct thread *t, const char *name, int priority)
 	t->stack = (uint8_t *) t + PGSIZE;
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
+	//Alex Filip
+	t->nice = 0;
+	t->recent_cpu_time = fixed_point_convert_int(0);
+
 	list_push_back(&all_list, &t->allelem);
 }
 
@@ -651,18 +664,22 @@ static void schedule(void) {
 //Alex Filip
 static void
 schedule_by_priority(void) {
-	struct thread *cur = thread_current();
-	struct thread *next = list_entry(list_front(&ready_list), struct thread, elem);
-
 	enum intr_level old_level;
-	old_level = intr_disable();
+	//old_level = intr_disable();
+	struct thread *cur = thread_current();
 
-	if (next->priority > cur->priority && next != idle_thread)
+	if(!list_empty(&ready_list))
 	{
-		thread_yield();
-	}
 
-	intr_set_level(old_level);
+		struct thread *next = list_entry(list_front(&ready_list),
+				struct thread, elem);
+
+		if (next->priority > cur->priority && next != idle_thread)
+		{
+			thread_yield();
+		}
+	}
+	//intr_set_level(old_level);
 }
 
 /* Returns a tid to use for a new thread. */
