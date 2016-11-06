@@ -78,9 +78,6 @@ static tid_t allocate_tid(void);
 //Alex Filip
 int ready_threads;
 
-//Craciun Octavian
-static bool priority_list_less_func(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
-
 /* Initializes the threading system by transforming the code
  that's currently running into a thread.  This can't work in
  general and it is possible in this case only because loader.S
@@ -421,27 +418,38 @@ thread_set_priority (int new_priority)
 	struct thread* current = thread_current();
 	int old_priority = current->priority;
 
-	if(current->donated)
-	{
-		//current threads priority is donated,
-		//and is smaller than the new one, so we change it immediately
-		if(old_priority <= new_priority)
-			current->priority = new_priority;
-	}
-	else
-	{
-		//current thread don't have donated priority,
-		//so we change it immediately
-		current->priority = new_priority;
-
-		//if we lower threads priority,
-		//check if we need to preempt
-		if(new_priority < old_priority)
-				schedule_by_priority();
-	}
-
 	//always update initial priority
 	current->initial_priority = new_priority;
+
+	//Alex Roman
+	//update priority
+	current->priority = current->initial_priority;
+	current->donated = false;
+	if(!list_empty(&current->donation_list))
+	{
+		struct thread *don_thrd = list_entry(list_front(&current->donation_list), struct thread, donation_elem);
+		if( don_thrd->priority > current->priority)
+		{
+			current->priority = don_thrd->priority;
+			current->donated = true;
+		}
+	}
+
+	if(old_priority < current->priority)
+		donate();
+
+	//Octavian Craciun
+	//sort ready list
+	if(current->status == THREAD_READY)
+	{
+		list_remove(&current->elem);
+		list_insert_ordered(&ready_list, &current->elem, priority_list_less_func, NULL);
+	}
+
+	//if we lower threads priority,
+	//check if we need to preempt
+	if(new_priority < old_priority)
+			schedule_by_priority();
 
 	intr_set_level(old_level);
 }
@@ -588,9 +596,11 @@ init_thread (struct thread *t, const char *name, int priority)
 	t->nice = 0;
 	t->recent_cpu_time = fixed_point_convert_int(0);
 
-	//Craciun octavian
+	//Alex Roman
 	t->initial_priority = priority;
 	t->donated = false;
+	t->blocking_lock = NULL;
+	list_init(&t->donation_list);
 
 	list_push_back(&all_list, &t->allelem);
 }
@@ -726,7 +736,7 @@ uint32_t thread_stack_ofs = offsetof(struct thread, stack);
 
 //Octavian Craciun
 // comparator used by list_sort to sort the ready list by priority
-static bool
+bool
 priority_list_less_func(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   ASSERT(a!=NULL && b!=NULL);
@@ -793,3 +803,30 @@ update_ready_threads_counter(void)
 {
 	ready_threads = list_size(&ready_list);
 }
+
+//Alex Roman
+void
+donate(void)
+{
+	struct thread *current = thread_current();
+	struct lock *lock = current->blocking_lock;
+	int i=0;
+
+	while(lock != NULL && i++ <= MAX_DEPTH)
+	{
+		//if there is no lock holder or the thread that is holding the
+		//lock has greater priority than current, return
+		if(lock->holder == NULL || lock->holder->priority >= current->priority)
+			return;
+		else
+		{
+			lock->holder->priority = current->priority;
+			lock->holder->donated = true;
+			current = lock->holder;
+			lock = current->blocking_lock;
+		}
+	}
+}
+
+
+

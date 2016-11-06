@@ -24,7 +24,7 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
-
+#define MAX_DEPTH 8
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -111,6 +111,9 @@ struct thread
     //Roman Alex
     int initial_priority;
     bool donated;
+    struct lock *blocking_lock;			/* Lock that is blocking this thread. */
+    struct list donation_list; /* The list of threads waiting on lock  this threads holds. */
+    struct list_elem donation_elem;
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
@@ -154,11 +157,14 @@ int thread_get_load_avg (void);
 
 //Octavian Craciun
 void schedule_by_priority(void);
+bool priority_list_less_func(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 //Alex Filip
 void recompute_load_avg(struct thread *t, void *aux UNUSED);
 void thread_recompute_recent_cpu(struct thread *t, void *aux UNUSED);
 void thread_recompute_priority(struct thread *t, void *aux UNUSED);
 
+//Alex Roman
+void donate(void);
 
 #endif /* threads/thread.h */

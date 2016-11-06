@@ -127,6 +127,7 @@ sema_up (struct semaphore *sema)
   if (!list_empty (&sema->waiters)) 
   {
 	  //Octavian Craciun
+	  list_sort(&sema->waiters, sema_list_less_func, NULL);
 	  thread_unblock (list_entry (list_pop_front (&sema->waiters),
 			  struct thread, elem));
   }
@@ -216,8 +217,21 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  //Alex Roman
+  enum intr_level old_level;
+  old_level = intr_disable();
+  struct thread *current = thread_current();
+
+  if(!thread_mlfqs && lock->holder != NULL)
+  {
+	  list_insert_ordered(&lock->holder->donation_list, &current->donation_elem, priority_list_less_func, NULL);
+	  current->blocking_lock = lock;
+  }
+  donate();
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+  thread_current()->blocking_lock = NULL;
+  intr_set_level(old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -255,8 +269,39 @@ lock_release (struct lock *lock)
   old_level = intr_disable();
 
   lock->holder = NULL;
-  sema_up (&lock->semaphore);
+  //Alex Roman
+  if(!thread_mlfqs)
+  {
+	  //remove threads from donation list that are blocked by the current lock
+	  struct thread *cur = thread_current();
+	  struct list_elem *el = list_begin(&cur->donation_list);
+	  struct list_elem *next_el;
+	  while(el != list_end(&cur->donation_list))
+	  {
+		  struct thread *t = list_entry(el, struct thread, donation_elem);
+		  next_el = list_next(el);
+		  if(t->blocking_lock == lock)
+		  {
+			  list_remove(el);
+		  }
+		  el = next_el;
+	  }
 
+	  //update_priority
+	  cur->priority = cur->initial_priority;
+	  cur->donated = false;
+	  if(!list_empty(&cur->donation_list))
+	  {
+		  struct thread *don_thrd = list_entry(list_front(&cur->donation_list), struct thread, elem);
+		  if(don_thrd->priority > cur->priority)
+		  {
+		  	cur->priority = don_thrd->priority;
+		  	cur->donated = true;
+		  }
+	  }
+  }
+
+  sema_up (&lock->semaphore);
   intr_set_level(old_level);
 }
 
@@ -321,9 +366,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   
   sema_init (&waiter.semaphore, 0);
 
-  //Octavian Craciun
-  list_insert_ordered (&cond->waiters, &waiter.elem,
-     		  cond_list_less_func, NULL);
+  list_push_back (&cond->waiters, &waiter.elem);
 
   lock_release (lock);
   sema_down (&waiter.semaphore);
@@ -348,6 +391,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   if (!list_empty (&cond->waiters)) 
   {
 	  //Octavian Craciun
+	  list_sort (&cond->waiters, cond_list_less_func, NULL);
 	  sema_up (&list_entry (list_pop_front (&cond->waiters),
                           	  struct semaphore_elem, elem)->semaphore);
   }
