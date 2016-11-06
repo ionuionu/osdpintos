@@ -57,15 +57,6 @@ static long long user_ticks; /* # of timer ticks in user programs. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks; /* # of timer ticks since last yield. */
 
-//Octavian Craciun
-static bool priority_list_less_func(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
-
-//Alex Filip
-void recompute_load_avg(struct thread *t, void *aux UNUSED);
-void thread_recompute_recent_cpu(struct thread *t, void *aux UNUSED);
-void thread_recompute_priority(struct thread *t, void *aux UNUSED);
-static void schedule_by_priority(void);
-
 /* If false (default), use round-robin scheduler.
  If true, use multi-level feedback queue scheduler.
  Controlled by kernel command-line option "-o mlfqs". */
@@ -86,6 +77,9 @@ static tid_t allocate_tid(void);
 
 //Alex Filip
 int ready_threads;
+
+//Craciun Octavian
+static bool priority_list_less_func(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 /* Initializes the threading system by transforming the code
  that's currently running into a thread.  This can't work in
@@ -271,6 +265,7 @@ thread_create (const char *name, int priority,
 	thread_unblock(t);
 
 	//Alex Filip & Octavian Craciun
+	//test if the current thread need to be preempted
 	schedule_by_priority();
 
 	return tid;
@@ -315,8 +310,6 @@ thread_unblock (struct thread *t)
 
 	//Alex Filip & Octavian Craciun
 	list_insert_ordered(&ready_list, &t->elem, priority_list_less_func, NULL);
-
-	//Alex Filip
 	//ready_threads++;
 
 	t->status = THREAD_READY;
@@ -425,10 +418,31 @@ thread_set_priority (int new_priority)
 	enum intr_level old_level;
 	old_level = intr_disable();
 
-	int old_priority = thread_current()->priority;
-	thread_current()->priority = new_priority;
-	if(new_priority < old_priority)
-		schedule_by_priority();
+	struct thread* current = thread_current();
+	int old_priority = current->priority;
+
+	if(current->donated)
+	{
+		//current threads priority is donated,
+		//and is smaller than the new one, so we change it immediately
+		if(old_priority <= new_priority)
+			current->priority = new_priority;
+	}
+	else
+	{
+		//current thread don't have donated priority,
+		//so we change it immediately
+		current->priority = new_priority;
+
+		//if we lower threads priority,
+		//check if we need to preempt
+		if(new_priority < old_priority)
+				schedule_by_priority();
+	}
+
+	//always update initial priority
+	current->initial_priority = new_priority;
+
 	intr_set_level(old_level);
 }
 
@@ -574,6 +588,10 @@ init_thread (struct thread *t, const char *name, int priority)
 	t->nice = 0;
 	t->recent_cpu_time = fixed_point_convert_int(0);
 
+	//Craciun octavian
+	t->initial_priority = priority;
+	t->donated = false;
+
 	list_push_back(&all_list, &t->allelem);
 }
 
@@ -669,7 +687,7 @@ static void schedule(void) {
 }
 
 //Alex Filip
-static void
+void
 schedule_by_priority(void) {
 	enum intr_level old_level;
 	//old_level = intr_disable();

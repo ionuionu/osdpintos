@@ -108,6 +108,10 @@ struct thread
     int nice;
     fixed_point_t recent_cpu_time;
 
+    //Roman Alex
+    int initial_priority;
+    bool donated;
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
@@ -147,5 +151,14 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+//Octavian Craciun
+void schedule_by_priority(void);
+
+//Alex Filip
+void recompute_load_avg(struct thread *t, void *aux UNUSED);
+void thread_recompute_recent_cpu(struct thread *t, void *aux UNUSED);
+void thread_recompute_priority(struct thread *t, void *aux UNUSED);
+
 
 #endif /* threads/thread.h */
